@@ -56,6 +56,7 @@ extern "C" {
 #include "OMXPlayerSubtitles.h"
 #include "DllOMX.h"
 #include "Srt.h"
+#include "udp_sync.h"
 
 #include <string>
 #include <utility>
@@ -106,6 +107,7 @@ float             m_audio_queue_size    = 0.0;
 float             m_video_queue_size    = 0.0;
 float             m_audio_fifo_size     = 0.0; // zero means use default
 float             m_video_fifo_size     = 0.0;
+bool              m_loop                = false;
 
 enum{ERROR=-1,SUCCESS,ONEBYTE};
 
@@ -264,31 +266,35 @@ void FlushStreams(double pts)
 //  }
 }
 
-void SeekAt(double time)
+static void handle_udp_master(double time)
+{
+  char current_time[256];
+  snprintf(current_time, sizeof(current_time), "%f", time);
+  send_udp(udp_ip, udp_port, current_time);
+  printf("master_position: %f\n", time);
+}
+
+void SeekAt(double seek_pos)
 {
   if(!m_bMpeg)
   {
     double                startpts              = 0;
 
     int    seek_flags   = 0;
-    double seek_pos     = 0;
-    double pts          = 0;
-    double incr         = 0;
+    double pos          = 0;
 
     if(m_has_subtitle)
       m_player_subtitles.Pause();
 
     m_av_clock->OMXStop();
 
-    pts = m_av_clock->GetPTS();
-    incr = time - (pts / DVD_TIME_BASE);
+    //pos = m_av_clock->GetPTS() / DVD_TIME_BASE;
+    pos = m_av_clock->OMXMediaTime() / DVD_TIME_BASE;
 
-    seek_pos = time; //(pts / DVD_TIME_BASE) + incr;
-    seek_flags = incr < 0.0f ? AVSEEK_FLAG_BACKWARD : 0;
+    seek_flags = seek_pos < pos ? AVSEEK_FLAG_BACKWARD : 0;
 
     seek_pos *= 1000.0f;
 
-    incr = 0;
 
     if(m_omx_reader.SeekTime(seek_pos, seek_flags, &startpts))
       FlushStreams(startpts);
@@ -499,6 +505,10 @@ int main(int argc, char *argv[])
   double                startpts              = 0;
   TV_DISPLAY_STATE_T   tv_state;
 
+  /// udp_master = 1;
+  /// udp_port = 23867;  
+  /// udp_ip = "192.168.1.255";
+
   const int font_opt        = 0x100;
   const int font_size_opt   = 0x101;
   const int align_opt       = 0x102;
@@ -540,12 +550,23 @@ int main(int argc, char *argv[])
     { "audio_queue",  required_argument,  NULL,          audio_queue_opt },
     { "video_queue",  required_argument,  NULL,          video_queue_opt },
     { "boost-on-downmix", no_argument,    NULL,          boost_on_downmix_opt },
+    { "udp-master",   no_argument,        NULL,          'm' },
+    { "udp-slave",    no_argument,        NULL,          'x' },
+    { "udp-ip",       required_argument,  NULL,          'a'},
+    { "loop",         no_argument,        NULL,          'b' },
+    /*
+    {"udp-slave", &udp_slave, CONF_TYPE_FLAG, 0, 0, 1, NULL},
+    {"udp-master", &udp_master, CONF_TYPE_FLAG, 0, 0, 1, NULL},
+    {"udp-ip", &udp_ip, CONF_TYPE_STRING, 0, 0, 1, NULL},
+    {"udp-port", &udp_port, CONF_TYPE_INT, 0, 1, 65535, NULL},
+    {"udp-seek-threshold", &udp_seek_threshold, CONF_TYPE_FLOAT, CONF_RANGE, 0.1, 100, NULL},
+    */
     { 0, 0, 0, 0 }
   };
 
   int c;
   std::string mode;
-  while ((c = getopt_long(argc, argv, "wihn:l:o:cslpd3:yzt:rg", longopts, NULL)) != -1)
+  while ((c = getopt_long(argc, argv, "wihn:l:o:cslpd3:yzt:rgmxa:b", longopts, NULL)) != -1)
   {
     switch (c) 
     {
@@ -662,6 +683,18 @@ int main(int argc, char *argv[])
         break;
       case ':':
         return 0;
+        break;
+      case 'm':
+        udp_master = true;
+        break;
+      case 'x':
+        udp_slave = true;
+        break;
+      case 'a':
+        udp_ip = optarg;
+        break;
+      case 'b':
+        m_loop = true;
         break;
       default:
         return 0;
@@ -1023,6 +1056,31 @@ int main(int argc, char *argv[])
         break;
     }
 
+    if (udp_slave) {
+        //double pos = m_av_clock->GetPTS() / DVD_TIME_BASE;
+        double pos = m_av_clock->OMXMediaTime() / DVD_TIME_BASE;
+        double udp_master_exited = udp_slave_sync(pos);
+        if (udp_master_exited < 0) {
+            printf("Master quit");
+            goto do_exit;
+        } 
+        else if (udp_master_exited == 0)
+        {
+            /// return 0;
+        }
+        else {
+          SeekAt(udp_master_exited);
+          printf("master: %f\n", udp_master_exited);
+          //sleep(1);
+        }
+    }
+
+    if (udp_master){
+      //double pos = m_av_clock->GetPTS() / DVD_TIME_BASE;
+      double pos = m_av_clock->OMXMediaTime() / DVD_TIME_BASE;
+      handle_udp_master(pos);
+    }
+
     if(m_Pause)
     {
       OMXClock::OMXSleep(2);
@@ -1080,15 +1138,21 @@ int main(int argc, char *argv[])
 
     if(m_omx_reader.IsEof() && !m_omx_pkt)
     {
-      if (!m_player_audio.GetCached() && !m_player_video.GetCached())
-        break;
+      if (m_loop){
+        SeekAt(0);
+      }
+      else
+      {
+        if (!m_player_audio.GetCached() && !m_player_video.GetCached())
+          break;
 
-      // Abort audio buffering, now we're on our own
-      if (m_av_clock->OMXIsPaused())
-        m_av_clock->OMXResume();
+        // Abort audio buffering, now we're on our own
+        if (m_av_clock->OMXIsPaused())
+          m_av_clock->OMXResume();
 
-      OMXClock::OMXSleep(10);
-      continue;
+        OMXClock::OMXSleep(10);
+        continue;
+      }
     }
 
     /* when the audio buffer runs under 0.1 seconds we buffer up */
@@ -1223,5 +1287,9 @@ do_exit:
   g_RBP.Deinitialize();
 
   printf("have a nice day ;)\n");
+  if (udp_master)
+  {
+    send_udp(udp_ip, udp_port, "bye");
+  }
   return 1;
 }
