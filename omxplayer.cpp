@@ -753,6 +753,7 @@ int main(int argc, char *argv[])
     CLog::SetLogLevel(LOG_LEVEL_NONE);
   }
 
+read_file:
   g_RBP.Initialize();
   g_OMX.Initialize();
 
@@ -879,6 +880,7 @@ int main(int argc, char *argv[])
     goto do_exit;
 
   m_av_clock->SetSpeed(DVD_PLAYSPEED_NORMAL);
+start_clock:
   m_av_clock->OMXStateExecute();
   m_av_clock->OMXStart(0.0);
 
@@ -886,6 +888,7 @@ int main(int argc, char *argv[])
 
   PrintSubtitleInfo();
 
+main_loop:
   while(!m_stop)
   {
     int ch[8];
@@ -1024,7 +1027,7 @@ int main(int argc, char *argv[])
         if(m_omx_reader.CanSeek()) m_incr = -600.0;
         break;
       case 'c':
-        if(m_omx_reader.CanSeek()) SeekAt(30.0);
+        if(m_omx_reader.CanSeek()) SeekAt(48.0);
         break;
       case ' ':
       case 'p':
@@ -1138,21 +1141,15 @@ int main(int argc, char *argv[])
 
     if(m_omx_reader.IsEof() && !m_omx_pkt)
     {
-      if (m_loop){
-        SeekAt(0);
-      }
-      else
-      {
-        if (!m_player_audio.GetCached() && !m_player_video.GetCached())
-          break;
+      if (!m_player_audio.GetCached() && !m_player_video.GetCached())
+        break;
 
-        // Abort audio buffering, now we're on our own
-        if (m_av_clock->OMXIsPaused())
-          m_av_clock->OMXResume();
+      // Abort audio buffering, now we're on our own
+      if (m_av_clock->OMXIsPaused())
+        m_av_clock->OMXResume();
 
-        OMXClock::OMXSleep(10);
-        continue;
-      }
+      OMXClock::OMXSleep(10);
+      continue;
     }
 
     /* when the audio buffer runs under 0.1 seconds we buffer up */
@@ -1247,7 +1244,7 @@ int main(int argc, char *argv[])
   }
 
 do_exit:
-  printf("\n");
+  printf("eof\n");
 
   if(!m_stop && !g_abort)
   {
@@ -1257,34 +1254,59 @@ do_exit:
       m_player_video.WaitCompletion();
   }
 
+
+  printf("end1\n");
   if(m_has_video && m_refresh && tv_state.display.hdmi.group && tv_state.display.hdmi.mode)
   {
     m_BcmHost.vc_tv_hdmi_power_on_explicit_new(HDMI_MODE_HDMI, (HDMI_RES_GROUP_T)tv_state.display.hdmi.group, tv_state.display.hdmi.mode);
   }
+  printf("end2\n");
 
   m_av_clock->OMXStop();
   m_av_clock->OMXStateIdle();
+  printf("end3\n");
+/*
+  if (m_loop && !m_stop && !g_abort)
+  {
+    SeekAt(m_seek_pos);
+    printf("loop\n");
+    //goto main_loop;
+    goto start_clock;
+  }
+*/
 
   m_player_subtitles.Close();
   m_player_video.Close();
   m_player_audio.Close();
+  printf("end4\n");
 
   if(m_omx_pkt)
   {
     m_omx_reader.FreePacket(m_omx_pkt);
     m_omx_pkt = NULL;
   }
+  printf("end5\n");
 
   m_omx_reader.Close();
 
   m_av_clock->Deinitialize();
   if (m_av_clock)
     delete m_av_clock;
+  printf("end6\n");
 
   vc_tv_show_info(0);
 
+  printf("end7\n");
   g_OMX.Deinitialize();
   g_RBP.Deinitialize();
+
+
+  if (m_loop && !m_stop && !g_abort)
+  {
+    //SeekAt(m_seek_pos);
+    printf("loop\n");
+    goto read_file;
+  }
 
   printf("have a nice day ;)\n");
   if (udp_master)
