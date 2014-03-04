@@ -1265,7 +1265,7 @@ do_exit:
   m_av_clock->OMXStop();
   m_av_clock->OMXStateIdle();
   printf("end3\n");
-/*
+
   if (m_loop && !m_stop && !g_abort)
   {
     SeekAt(m_seek_pos);
@@ -1273,7 +1273,6 @@ do_exit:
     //goto main_loop;
     goto start_clock;
   }
-*/
 
   m_player_subtitles.Close();
   m_player_video.Close();
@@ -1300,14 +1299,14 @@ do_exit:
   g_OMX.Deinitialize();
   g_RBP.Deinitialize();
 
-
+/*
   if (m_loop && !m_stop && !g_abort)
   {
     //SeekAt(m_seek_pos);
     printf("loop\n");
     goto read_file;
   }
-
+*/
   printf("have a nice day ;)\n");
   if (udp_master)
   {

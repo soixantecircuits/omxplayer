@@ -1,4 +1,4 @@
-USE_BUILDROOT=1
+USE_BUILDROOT=0
 FLOAT=hard
 
 ifeq ($(USE_BUILDROOT), 1)
@@ -10,11 +10,11 @@ HOST			:=arm-unknown-linux-gnueabi
 SYSROOT		:=$(BUILDROOT)/output/host/usr/arm-unknown-linux-gnueabi/sysroot
 else
 BUILDROOT	:=/opt/bcm-rootfs
-SDKSTAGE	:=/opt/bcm-rootfs
-TARGETFS	:=/opt/bcm-rootfs
-TOOLCHAIN	:=/usr/local/bcm-gcc
-HOST			:=bcm2708
-SYSROOT		:=$(TOOLCHAIN)/arm-bcm2708-linux-gnueabi/sys-root
+SDKSTAGE	:=/home/emmanuel/edev/rpi/nfs
+TARGETFS	:=/home/emmanuel/edev/rpi/nfs
+TOOLCHAIN	:=/usr/local/bcm-gcc/tools/arm-bcm2708/gcc-linaro-arm-linux-gnueabihf-raspbian
+HOST			:=arm-linux-gnueabihf
+SYSROOT		:=/home/emmanuel/edev/rpi/nfs
 endif
 
 JOBS=7
